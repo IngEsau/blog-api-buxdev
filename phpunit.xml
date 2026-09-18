@@ -16,6 +16,8 @@
     <php>
         <env name="APP_ENV" value="testing" force="true"/>
         <env name="APP_DEBUG" value="false" force="true"/>
+        <env name="DB_DATABASE" value="buxdev_api_testing" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="CACHE_STORE" value="array"/>
         <env name="SESSION_DRIVER" value="array"/>
