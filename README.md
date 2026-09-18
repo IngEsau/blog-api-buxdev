@@ -37,9 +37,3 @@ php artisan route:list
 ```
 
 Las rutas se registran en `routes/api.php` sin prefijo para exponer exactamente `/health`. El controlador está en `app/Http/Controllers/Api/V1`. Los errores HTTP se devuelven como JSON incluso sin cabecera `Accept`. CORS está deshabilitado y no hay autenticación, usuarios, rutas de almacenamiento ni frontend.
-
-## Configuración de producción
-
-Define `APP_ENV=production`, `APP_DEBUG=false` y una `APP_KEY` propia en el entorno privado. Mantén `APP_DEBUG=false` para evitar detalles internos y trazas en las respuestas. `.env.example` no incluye secretos y los archivos `.env` están ignorados por Git.
-
-El punto de entrada elimina `X-Powered-By`; configura además `expose_php=Off` en PHP y desactiva la divulgación de versiones en el servidor web. El document root debe ser `public/`. No se incluye ni se ejecuta ningún despliegue.
