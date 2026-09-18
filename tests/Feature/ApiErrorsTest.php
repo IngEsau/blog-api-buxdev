@@ -13,7 +13,7 @@ class ApiErrorsTest extends TestCase
         $this->get('/api/nonexistent')
             ->assertNotFound()
             ->assertHeader('Content-Type', 'application/json')
-            ->assertJsonStructure(['message'])
+            ->assertExactJson(['message' => 'Not Found'])
             ->assertJsonMissingPath('trace')
             ->assertJsonMissingPath('exception');
     }
@@ -35,5 +35,26 @@ class ApiErrorsTest extends TestCase
         $this->get('/test-error')
             ->assertInternalServerError()
             ->assertExactJson(['message' => 'Server Error']);
+    }
+
+    public function test_http_exceptions_do_not_disclose_internal_messages(): void
+    {
+        Route::get('/test-http-error', function (): never {
+            abort(503, 'Sensitive upstream detail', ['Retry-After' => '60']);
+        });
+
+        $this->get('/test-http-error')
+            ->assertStatus(503)
+            ->assertHeader('Content-Type', 'application/json')
+            ->assertHeader('Retry-After', '60')
+            ->assertExactJson(['message' => 'Service Unavailable']);
+    }
+
+    public function test_method_not_allowed_is_generic_and_preserves_allowed_methods(): void
+    {
+        $this->post('/health')
+            ->assertStatus(405)
+            ->assertHeader('Allow', 'GET, HEAD')
+            ->assertExactJson(['message' => 'Method Not Allowed']);
     }
 }

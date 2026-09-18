@@ -1,6 +1,21 @@
+Options -Indexes
+ServerSignature Off
+Require all granted
+
+<IfModule mod_headers.c>
+    Header unset X-Powered-By
+    Header always unset X-Powered-By
+</IfModule>
+
+# Never serve hidden files, private configuration or PHP entry points other
+# than Laravel's front controller, even if accidentally copied into public/.
+<FilesMatch "(?i)(^\.|^(?:artisan|composer\.(?:json|lock)|phpunit\.xml)$|\.(?:env|ini|log|sql|bak)$|^(?!index\.php$).*\.php$)">
+    Require all denied
+</FilesMatch>
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
-        Options -MultiViews -Indexes
+        Options -MultiViews
     </IfModule>
 
     RewriteEngine On

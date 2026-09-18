@@ -1,0 +1,4 @@
+# Fail closed if the project root is accidentally exposed by Apache.
+# Only public/ overrides this rule; it must be the subdomain document root.
+Options -Indexes
+Require all denied
