@@ -114,8 +114,13 @@ class BuildArticlesTest extends TestCase
         $this->get('/v1/build/articles?'.$query)
             ->assertStatus(400)
             ->assertHeader('Content-Type', 'application/json')
-            ->assertJsonValidationErrors('locale')
-            ->assertJsonMissingPath('trace');
+            ->assertExactJson([
+                'message' => 'Invalid locale.',
+                'errors' => [
+                    'locale' => ['Supported locales are: es, en.'],
+                ],
+            ])
+            ->assertDontSee('validation.in', false);
     }
 
     public static function invalidLocaleQueries(): array

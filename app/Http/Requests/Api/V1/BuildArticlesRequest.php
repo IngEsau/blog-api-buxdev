@@ -4,8 +4,8 @@ namespace App\Http\Requests\Api\V1;
 
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 
 class BuildArticlesRequest extends FormRequest
 {
@@ -28,6 +28,11 @@ class BuildArticlesRequest extends FormRequest
 
     protected function failedValidation(Validator $validator): void
     {
-        throw (new ValidationException($validator))->status(400);
+        throw new HttpResponseException(response()->json([
+            'message' => 'Invalid locale.',
+            'errors' => [
+                'locale' => ['Supported locales are: es, en.'],
+            ],
+        ], 400));
     }
 }
