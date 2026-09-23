@@ -20,20 +20,48 @@ class ImportArticleTest extends TestCase
     public function test_real_article_import_is_idempotent_and_exposes_v1_content(): void
     {
         $path = database_path('articles/wordpress-seo-spam.es.json');
-        $this->artisan('blog:import', ['file' => $path, '--dry-run' => true])->assertSuccessful();
+
+        $this->artisan('blog:import', [
+            'file' => $path,
+            '--dry-run' => true,
+        ])->assertSuccessful();
+
         $this->assertDatabaseCount('articles', 0);
-        $this->artisan('blog:import', ['file' => $path])->assertSuccessful();
+
+        $this->artisan('blog:import', [
+            'file' => $path,
+        ])->assertSuccessful();
+
         $before = Article::first()->getAttributes();
-        $this->artisan('blog:import', ['file' => $path])->expectsOutputToContain('Unchanged')->assertSuccessful();
+
+        $this->artisan('blog:import', [
+            'file' => $path,
+        ])
+            ->expectsOutputToContain('Unchanged')
+            ->assertSuccessful();
+
         $this->assertDatabaseCount('articles', 1);
         $this->assertSame($before, Article::first()->getAttributes());
+
         $input = $this->document()['article'];
-        $this->get('/v1/build/articles?locale=es')->assertOk()
+
+        $response = $this->get('/v1/build/articles?locale=es')
+            ->assertOk()
             ->assertJsonPath('schemaVersion', 1)
             ->assertJsonPath('articles.0.slug', $input['slug'])
-            ->assertJsonPath('articles.0.content', $input['content'])
             ->assertJsonPath('articles.0.publishedAt', $input['publishedAt'])
             ->assertJsonPath('articles.0.updatedAt', $input['updatedAt']);
+
+        /*
+        * JSON object key order is not semantically significant.
+        * MySQL 8 may normalize object key order when storing JSON,
+        * so content must be compared by value rather than strict
+        * PHP array identity.
+        */
+        $this->assertEquals(
+            $input['content'],
+            $response->json('articles.0.content')
+        );
     }
 
     public function test_newer_revision_updates_existing_row_but_stale_or_conflicting_revisions_fail(): void
