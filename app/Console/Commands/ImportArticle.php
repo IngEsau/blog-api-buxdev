@@ -74,11 +74,8 @@ class ImportArticle extends Command
                 }
                 $article->save();
 
-                return 'Published';
+                return $article->wasRecentlyCreated ? 'Created' : 'Updated';
             });
-            $this->info($result.': '.$input['locale'].'/'.$input['slug']);
-
-            return self::SUCCESS;
         } catch (\JsonException|ValidationException) {
             $this->error('Invalid article document or conflicting revision. No article was written.');
 
@@ -88,5 +85,9 @@ class ImportArticle extends Command
 
             return self::FAILURE;
         }
+
+        $this->info($result.': '.$input['locale'].'/'.$input['slug']);
+
+        return self::SUCCESS;
     }
 }
