@@ -13,6 +13,7 @@ readonly DEPLOY_ENV="$PROJECT_ROOT/.env.deploy"
 readonly DEPLOY_LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/buxdev-api-deploy"
 TEMP_ROOT=''
 DATABASE_CONTAINER=''
+LFTP_PID=''
 
 fail() {
     printf 'Error: %s\n' "$1" >&2
@@ -22,6 +23,10 @@ fail() {
 cleanup() {
     local status=$?
     trap - EXIT
+    if [[ -n "$LFTP_PID" ]] && kill -0 "$LFTP_PID" >/dev/null 2>&1; then
+        kill "$LFTP_PID" >/dev/null 2>&1 || true
+        wait "$LFTP_PID" >/dev/null 2>&1 || true
+    fi
     if [[ -n "$DATABASE_CONTAINER" ]]; then
         docker rm --force "$DATABASE_CONTAINER" >/dev/null 2>&1 || true
     fi
@@ -207,6 +212,7 @@ docker_php "$TEST_ROOT" ./vendor/bin/pint --test
 docker_php "$TEST_ROOT" composer validate
 docker rm --force "$DATABASE_CONTAINER" >/dev/null
 DATABASE_CONTAINER=''
+LFTP_PID=''
 
 printf 'Generando release de producción desde el mismo commit...\n'
 git -C "$PROJECT_ROOT" archive "$RELEASE_COMMIT" | tar -x -C "$RELEASE_ROOT"
@@ -282,25 +288,41 @@ put "$RELEASE_ROOT/composer.json" -o /composer.json
 put "$RELEASE_ROOT/composer.lock" -o /composer.lock
 put "$RELEASE_ROOT/.htaccess" -o /.htaccess
 
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=1 "$RELEASE_ROOT/app" /app
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=1 --exclude '^cache(/|$)' "$RELEASE_ROOT/bootstrap" /bootstrap
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=1 "$RELEASE_ROOT/bootstrap/cache" /bootstrap/cache
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=1 "$RELEASE_ROOT/config" /config
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=1 "$RELEASE_ROOT/database" /database
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=1 --exclude '^\.well-known(/|$)' "$RELEASE_ROOT/public" /public
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=1 "$RELEASE_ROOT/resources" /resources
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=1 "$RELEASE_ROOT/routes" /routes
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=1 "$RELEASE_ROOT/vendor" /vendor
+# Limpieza exacta de residuos de releases manuales anteriores. Nunca usar .env*.
+rm -f /.editorconfig /.env.example /.env.production.example /.env.deploy.example /.gitattributes /.gitignore /phpunit.xml /README.md /buxdev-api-release.zip
+
+mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/app" /app
+mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 --exclude '^cache(/|$)' "$RELEASE_ROOT/bootstrap" /bootstrap
+mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/bootstrap/cache" /bootstrap/cache
+mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/config" /config
+mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/database" /database
+mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 --exclude '^\.well-known(/|$)' "$RELEASE_ROOT/public" /public
+mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/resources" /resources
+mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/routes" /routes
+mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/vendor" /vendor
 bye
 EOF
 printf 'Iniciando transferencia FTPS con certificado TLS verificado...\n'
-# Nunca mostrar el log crudo del cliente. Si falla, se persiste una copia local
-# sanitizada fuera del repositorio y con permisos 0600 antes de limpiar temporales.
-if ! LFTP_HOME="$TEMP_ROOT/lftp-home" lftp --norc -f "$TEMP_ROOT/connection.lftp" \
-    >"$TEMP_ROOT/transfer.log" 2>&1; then
+# lftp queda en segundo plano para poder mostrar un heartbeat seguro sin imprimir
+# respuestas crudas del servidor ni credenciales.
+LFTP_HOME="$TEMP_ROOT/lftp-home" lftp --norc -f "$TEMP_ROOT/connection.lftp" \
+    >"$TEMP_ROOT/transfer.log" 2>&1 &
+LFTP_PID=$!
+transfer_started=$SECONDS
+while kill -0 "$LFTP_PID" >/dev/null 2>&1; do
+    sleep 10
+    if kill -0 "$LFTP_PID" >/dev/null 2>&1; then
+        transfer_size=$(wc -c < "$TEMP_ROOT/transfer.log" 2>/dev/null || printf '0')
+        printf 'FTPS en curso... %ss (log local: %s bytes)\n' "$((SECONDS - transfer_started))" "$transfer_size"
+    fi
+done
+if ! wait "$LFTP_PID"; then
+    LFTP_PID=''
     persist_sanitized_transfer_log "$TEMP_ROOT/transfer.log"
     fail 'Falló la transferencia FTPS (TLS, conexión o escritura). Puede haber archivos actualizados; no se confirma un deploy completo. Revisa el log FTPS sanitizado y reintenta el release completo.'
 fi
+LFTP_PID=''
+printf 'Transferencia FTPS completada en %ss.\n' "$((SECONDS - transfer_started))"
 
 cat <<'POST_DEPLOY'
 
