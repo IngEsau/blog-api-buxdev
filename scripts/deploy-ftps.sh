@@ -11,6 +11,7 @@ readonly MYSQL_IMAGE='mysql:8.0'
 readonly REMOTE_ROOT='/'
 readonly DEPLOY_ENV="$PROJECT_ROOT/.env.deploy"
 readonly DEPLOY_LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/buxdev-api-deploy"
+readonly MAX_TRANSFER_SECONDS=1800
 TEMP_ROOT=''
 DATABASE_CONTAINER=''
 LFTP_PID=''
@@ -280,9 +281,17 @@ IFS= read -r confirmation || true
 assert_clean_tree
 [[ "$(git -C "$PROJECT_ROOT" rev-parse HEAD)" == "$RELEASE_COMMIT" ]] || fail 'HEAD cambió antes de la transferencia.'
 
-# Sincronización determinista: --delete solo dentro de directorios gestionados
-# por Laravel. Nunca se borra de forma recursiva la raíz remota.
+# Sincronización determinista: el borrado se limita a directorios gestionados
+# por Laravel y ocurre ANTES de transferir. Así los archivos temporales .part
+# no compiten con --delete cuando hay varias transferencias en paralelo.
+# No usamos --transfer-all: lftp compara el release con el remoto y solo envía
+# archivos nuevos/modificados.
+printf '%s\n' "$RELEASE_COMMIT" > "$TEMP_ROOT/release-marker"
+chmod 600 "$TEMP_ROOT/release-marker"
+
 cat >> "$TEMP_ROOT/connection.lftp" <<EOF
+# Archivos raíz gestionados por el release. xfer:use-temp-file mantiene cada put
+# individual protegido frente a cortes de conexión.
 put "$RELEASE_ROOT/artisan" -o /artisan
 put "$RELEASE_ROOT/composer.json" -o /composer.json
 put "$RELEASE_ROOT/composer.lock" -o /composer.lock
@@ -291,20 +300,25 @@ put "$RELEASE_ROOT/.htaccess" -o /.htaccess
 # Limpieza exacta de residuos de releases manuales anteriores. Nunca usar .env*.
 rm -f /.editorconfig /.env.example /.env.production.example /.env.deploy.example /.gitattributes /.gitignore /phpunit.xml /README.md /buxdev-api-release.zip
 
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/app" /app
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 --exclude '^cache(/|$)' "$RELEASE_ROOT/bootstrap" /bootstrap
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/bootstrap/cache" /bootstrap/cache
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/config" /config
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/database" /database
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 --exclude '^\.well-known(/|$)' "$RELEASE_ROOT/public" /public
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/resources" /resources
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/routes" /routes
-mirror --reverse --delete --transfer-all --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/vendor" /vendor
+mirror --reverse --delete --delete-first --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/app" /app
+mirror --reverse --delete --delete-first --no-perms --no-symlinks --parallel=3 --exclude '^cache(/|$)' "$RELEASE_ROOT/bootstrap" /bootstrap
+mirror --reverse --delete --delete-first --no-perms --no-symlinks --parallel=1 "$RELEASE_ROOT/bootstrap/cache" /bootstrap/cache
+mirror --reverse --delete --delete-first --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/config" /config
+mirror --reverse --delete --delete-first --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/database" /database
+mirror --reverse --delete --delete-first --no-perms --no-symlinks --parallel=3 --exclude '^\.well-known(/|$)' "$RELEASE_ROOT/public" /public
+mirror --reverse --delete --delete-first --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/resources" /resources
+mirror --reverse --delete --delete-first --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/routes" /routes
+mirror --reverse --delete --delete-first --no-perms --no-symlinks --parallel=3 "$RELEASE_ROOT/vendor" /vendor
+
+# Marcador de finalización: solo se publica cuando TODAS las sincronizaciones
+# anteriores terminaron. Luego se descarga y se compara localmente con HEAD.
+put "$TEMP_ROOT/release-marker" -o /.buxdev-release
+get /.buxdev-release -o "$TEMP_ROOT/remote-release-marker"
 bye
 EOF
+
 printf 'Iniciando transferencia FTPS con certificado TLS verificado...\n'
-# lftp queda en segundo plano para poder mostrar un heartbeat seguro sin imprimir
-# respuestas crudas del servidor ni credenciales.
+printf 'La salida normal de lftp permanece silenciosa; se mostrará un heartbeat cada 10s.\n'
 LFTP_HOME="$TEMP_ROOT/lftp-home" lftp --norc -f "$TEMP_ROOT/connection.lftp" \
     >"$TEMP_ROOT/transfer.log" 2>&1 &
 LFTP_PID=$!
@@ -312,8 +326,15 @@ transfer_started=$SECONDS
 while kill -0 "$LFTP_PID" >/dev/null 2>&1; do
     sleep 10
     if kill -0 "$LFTP_PID" >/dev/null 2>&1; then
-        transfer_size=$(wc -c < "$TEMP_ROOT/transfer.log" 2>/dev/null || printf '0')
-        printf 'FTPS en curso... %ss (log local: %s bytes)\n' "$((SECONDS - transfer_started))" "$transfer_size"
+        elapsed=$((SECONDS - transfer_started))
+        printf 'FTPS activo... %ss\n' "$elapsed"
+        if (( elapsed >= MAX_TRANSFER_SECONDS )); then
+            kill "$LFTP_PID" >/dev/null 2>&1 || true
+            wait "$LFTP_PID" >/dev/null 2>&1 || true
+            LFTP_PID=''
+            persist_sanitized_transfer_log "$TEMP_ROOT/transfer.log"
+            fail "La transferencia excedió ${MAX_TRANSFER_SECONDS}s; se abortó y no se confirma el deploy."
+        fi
     fi
 done
 if ! wait "$LFTP_PID"; then
@@ -322,11 +343,20 @@ if ! wait "$LFTP_PID"; then
     fail 'Falló la transferencia FTPS (TLS, conexión o escritura). Puede haber archivos actualizados; no se confirma un deploy completo. Revisa el log FTPS sanitizado y reintenta el release completo.'
 fi
 LFTP_PID=''
+
+[[ -f "$TEMP_ROOT/remote-release-marker" ]] \
+    || fail 'FTPS terminó sin devolver el marcador remoto; no se confirma el deploy.'
+remote_commit="$(tr -d '\r\n' < "$TEMP_ROOT/remote-release-marker")"
+[[ "$remote_commit" == "$RELEASE_COMMIT" ]] \
+    || fail "El marcador remoto no coincide con el commit esperado ($RELEASE_COMMIT)."
+
 printf 'Transferencia FTPS completada en %ss.\n' "$((SECONDS - transfer_started))"
+printf 'Release remoto confirmado: %s\n' "$remote_commit"
 
 cat <<'POST_DEPLOY'
 
-Transferencia completada. bootstrap/cache quedó sin caches PHP locales para evitar
+Transferencia completada y commit remoto verificado mediante /.buxdev-release.
+bootstrap/cache quedó sin caches PHP locales para evitar
 arrastrar manifests/configuración del entorno de desarrollo. Configura temporalmente
 estos comandos en Cron cPanel, en este orden; comprueba cada resultado antes del
 siguiente y elimina los Cron al finalizar. No se ha ejecutado Artisan remotamente.
