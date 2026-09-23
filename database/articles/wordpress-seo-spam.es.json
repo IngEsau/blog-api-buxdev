@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "article": {
+    "article_group_id": "0cc1f659-679e-4fbe-81aa-b0d198ea3ca6",
+    "locale": "es",
+    "slug": "respuesta-incidente-seo-spam-wordpress",
+    "title": "SEO Spam en WordPress: respuesta a un incidente con más de 185,000 registros maliciosos",
+    "excerpt": "Un caso real sanitizado: análisis de causa raíz, contención, limpieza y hardening de un WordPress comprometido, con evidencia pública y límites explícitos de atribución.",
+    "author": { "name": "BUXDEV" },
+    "publishedAt": "2026-09-23T00:00:00Z",
+    "updatedAt": "2026-09-23T00:00:00Z",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "value": "El caso documenta 185,492 registros maliciosos en un WordPress corporativo del sector industrial. La inyección de SEO Spam afectó al rendimiento y contaminó el contenido público. Esta síntesis conserva el enfoque defensivo y omite identidades, credenciales e infraestructura del cliente. La evidencia sanitizada está disponible en el " },
+          { "type": "link", "text": "repositorio público del incidente", "href": "https://github.com/IngEsau/wp-xmlrpc-attack-analysis" },
+          { "type": "text", "value": "." }
+        ]
+      },
+      { "type": "heading", "level": 2, "id": "rca", "text": "RCA: exposición y abuso de XML-RPC" },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "value": "La reconstrucción publicada identifica un respaldo accesible desde la raíz web que contenía configuración sensible, junto con abuso de XML-RPC. Es importante separar esa hipótesis causal de lo que demuestra cada artefacto: una configuración expuesta no prueba por sí sola cómo se obtuvo una cuenta válida de WordPress." }]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "value": "Los " },
+          { "type": "link", "text": "fragmentos de logs sanitizados", "href": "https://github.com/IngEsau/wp-xmlrpc-attack-analysis/blob/main/artifacts/logs_snippets.txt" },
+          { "type": "text", "value": " muestran solicitudes repetidas a XML-RPC y errores durante operaciones de publicación. Son indicios de actividad automatizada, pero no identifican inequívocamente al operador. La asociación del informe con herramientas PBN debe leerse como una atribución técnica propuesta, no como identidad confirmada." }
+        ]
+      },
+      { "type": "heading", "level": 2, "id": "contencion", "text": "Contención: limitar la actividad y revocar acceso" },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "value": "La respuesta documentada combinó restricciones de acceso a XML-RPC, filtrado de tráfico identificado y rotación de credenciales de base de datos y salts de WordPress. Cada medida cubre una parte del incidente; ninguna permite asumir por sí sola que desapareció toda persistencia." }]
+      },
+      { "type": "heading", "level": 2, "id": "limpieza", "text": "Limpieza: controlar el alcance de la eliminación" },
+      {
+        "type": "paragraph",
+        "content": [
+          { "type": "text", "value": "Los " },
+          { "type": "link", "text": "artefactos de limpieza publicados", "href": "https://github.com/IngEsau/wp-xmlrpc-attack-analysis/blob/main/artifacts/cleaning_queries.sql" },
+          { "type": "text", "value": " agrupan patrones de contenido y contemplan metadatos huérfanos. Sus consultas son evidencia del caso, no instrucciones reutilizables sin revisión. Filtrar por idioma, palabras o estado de publicación también puede seleccionar contenido legítimo. Una intervención responsable necesita respaldo verificable, revisión previa de los registros afectados y comprobaciones posteriores de integridad." }
+        ]
+      },
+      { "type": "heading", "level": 2, "id": "hardening", "text": "Hardening: reducir la exposición" },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "value": "El endurecimiento descrito restringió el vector identificado y renovó secretos comprometidos. Como aprendizaje operativo, los respaldos deben permanecer fuera del directorio público y las interfaces de publicación deben habilitarse solo cuando exista una necesidad comprobada." }]
+      },
+      { "type": "heading", "level": 2, "id": "resultado", "text": "Resultado y límites de la evidencia" },
+      {
+        "type": "paragraph",
+        "content": [{ "type": "text", "value": "El repositorio documenta la limpieza y las medidas de recuperación. No publica series históricas de tráfico ni evidencia suficiente para cuantificar la recuperación del posicionamiento. Por eso no presentamos un porcentaje de mejora SEO ni una garantía de ausencia de reinfección." }]
+      },
+      { "type": "heading", "level": 2, "id": "aprendizajes", "text": "Aprendizajes para otros proyectos" },
+      {
+        "type": "list",
+        "ordered": false,
+        "items": [
+          [{ "type": "text", "value": "Separar hechos observados, hipótesis de causa raíz y atribución." }],
+          [{ "type": "text", "value": "Tratar la limpieza del contenido y la revocación del acceso como tareas complementarias." }],
+          [{ "type": "text", "value": "Validar reglas de eliminación contra contenido legítimo antes de aplicarlas." }],
+          [{ "type": "text", "value": "Definir seguimiento después de la recuperación: actividad de publicación, cambios inesperados e indexación." }]
+        ]
+      }
+    ]
+  }
+}
